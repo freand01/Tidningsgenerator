@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Layoutverktyget (Tidningsgeneratorn)</title>
+  
+  <!-- Hämtar React & ReactDOM -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  
+  <!-- Hämtar Babel för att kunna köra JSX-koden direkt i webbläsaren -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <!-- Hämtar Tailwind CSS för all styling -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Hämtar FontAwesome för ikoner -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <style>
+    /* FÖRENKLADE UTSKRIFTSINSTÄLLNINGAR */
+    @media print {
+      @page {
+        margin: 1cm;
+        size: auto; /* Låter skrivaren styra storleken */
+      }
+      
+      body {
+        background: white !important;
+        overflow: visible !important;
+        height: auto !important;
+      }
+
+      #root, .h-screen {
+        height: auto !important;
+        overflow: visible !important;
+        display: block !important;
+      }
+
+      .no-print {
+        display: none !important;
+      }
+
+      .print-container {
+        display: block !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        box-shadow: none !important;
+        height: auto !important;
+        overflow: visible !important;
+      }
+
+      /* Spalter som flödar naturligt */
+      .newspaper-columns {
+        display: block !important;
+        column-count: 2 !important;
+        column-gap: 30px !important;
+        height: auto !important;
+        overflow: visible !important;
+      }
+      
+      .reportage-columns-print {
+        column-count: 3 !important;
+      }
+
+      /* Låter texten flyta utan att tvinga fram brytningar */
+      p {
+        orphans: 3;
+        widows: 3;
+      }
+
+      * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+    }
+  </style>
+</head>
+<body class="bg-neutral-100">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback } = React;
+
+    const TEXT_TYPES = {
+      kronika: { id: 'kronika', name: 'Krönika', newspaperDefault: 'Dagens Krönika' },
+      nyhet: { id: 'nyhet', name: 'Nyhetsartikel', newspaperDefault: 'Morgonbladet' },
+      insandare: { id: 'insandare', name: 'Insändare', newspaperDefault: 'Fria Ordet' },
+      reportage: { id: 'reportage', name: 'Reportage', newspaperDefault: 'Helgmagasinet' }
+    };
+
+    const THEMES = {
+      morgontidning: {
+        id: 'morgontidning',
+        name: 'Morgontidning',
+        paper: "bg-[#fdfbf7] text-black",
+        headerBlock: "border-b-[6px] border-double border-black pb-4",
+        newspaperName: "font-serif text-5xl md:text-7xl font-bold uppercase tracking-widest text-neutral-900 mb-2",
+        metaBar: "border-t border-b border-black py-1 px-2 mt-4 text-xs md:text-sm uppercase tracking-widest font-serif font-bold text-neutral-900 w-full",
+        headline: "font-serif font-extrabold text-4xl md:text-6xl text-neutral-900 [text-wrap:balance] hyphens-auto",
+        bodyText: "font-serif text-lg text-neutral-800 leading-relaxed text-justify hyphens-auto",
+        borderBase: "border-black",
+        dropCap: "float-left text-7xl font-bold pr-2 pt-2 leading-none text-neutral-900",
+        quote: "border-y-2 border-black py-4 text-2xl font-serif italic text-neutral-900 my-6 font-bold text-center",
+      },
+      kvallstidning: {
+        id: 'kvallstidning',
+        name: 'Kvällstidning',
+        paper: "bg-white text-black",
+        headerBlock: "border-b-8 border-red-600 pb-2 flex flex-col items-center",
+        newspaperName: "font-sans text-5xl md:text-7xl font-black uppercase italic bg-red-600 text-white px-6 py-2 transform -skew-x-12 mb-2 shadow-md max-w-full",
+        metaBar: "bg-black text-white py-1 px-4 mt-2 text-xs md:text-sm uppercase font-sans font-bold w-full",
+        headline: "font-sans font-black text-5xl md:text-7xl uppercase tracking-tighter text-black leading-none [text-wrap:balance] hyphens-auto",
+        bodyText: "font-sans text-[1.1rem] text-gray-900 leading-snug text-left hyphens-auto",
+        borderBase: "border-red-600",
+        dropCap: "float-left text-6xl font-black pr-2 pt-1 leading-none text-red-600",
+        quote: "border-l-8 border-red-600 bg-gray-100 p-6 text-xl font-sans font-black italic text-black my-6 uppercase",
+      },
+      magasin: {
+        id: 'magasin',
+        name: 'Livsstilsmagasin',
+        paper: "bg-[#faf9f7] text-slate-800",
+        headerBlock: "border-b border-slate-300 pb-8 text-center",
+        newspaperName: "font-serif text-4xl md:text-6xl font-light tracking-[0.3em] text-slate-800 uppercase mb-4",
+        metaBar: "border-b border-slate-300 py-2 mt-4 text-xs uppercase tracking-widest font-sans font-semibold text-slate-500 w-full",
+        headline: "font-serif font-light text-4xl md:text-6xl italic text-slate-700 leading-tight [text-wrap:balance] hyphens-auto",
+        bodyText: "font-sans font-light text-base text-slate-700 leading-loose text-left hyphens-auto",
+        borderBase: "border-slate-300",
+        dropCap: "float-left text-7xl font-light pr-3 pt-2 leading-none text-slate-400",
+        quote: "text-center text-3xl font-serif text-slate-500 italic my-10 font-light",
+      }
+    };
+
+    const AutoFitText = ({ text, className }) => {
+      const containerRef = useRef(null);
+      const textRef = useRef(null);
+
+      useEffect(() => {
+        const adjustFontSize = () => {
+          if (!containerRef.current || !textRef.current) return;
+          const container = containerRef.current;
+          const el = textRef.current;
+          const containerWidth = container.clientWidth;
+          if (containerWidth === 0) return;
+          el.style.fontSize = '';
+          el.style.whiteSpace = 'nowrap';
+          const textWidth = el.scrollWidth;
+          if (textWidth > containerWidth) {
+            const baseFontSize = parseFloat(window.getComputedStyle(el).fontSize);
+            const scale = (containerWidth / textWidth) * 0.98;
+            el.style.fontSize = `${baseFontSize * scale}px`;
+          }
+        };
+        adjustFontSize();
+        const observer = new ResizeObserver(() => adjustFontSize());
+        if (containerRef.current) observer.observe(containerRef.current);
+        return () => observer.disconnect();
+      }, [text, className]);
+
+      return (
+        <div ref={containerRef} className="w-full flex justify-center overflow-hidden">
+          <h1 ref={textRef} className={`${className} inline-block`}>{text}</h1>
+        </div>
+      );
+    };
+
+    function App() {
+      const [isLoaded, setIsLoaded] = useState(false);
+      const [lastSaved, setLastSaved] = useState('');
+      const [docType, setDocType] = useState('kronika');
+      const [theme, setTheme] = useState('morgontidning');
+      const [isStudentMode, setIsStudentMode] = useState(false);
+      const [copySuccess, setCopySuccess] = useState(false);
+
+      const [newspaperName, setNewspaperName] = useState(TEXT_TYPES['kronika'].newspaperDefault);
+      const [date, setDate] = useState(new Date().toLocaleDateString('sv-SE', { year: 'numeric', month: 'long', day: 'numeric' }));
+      const [headline, setHeadline] = useState('Skriv din rubrik här...');
+      const [author, setAuthor] = useState('Anna Andersson');
+      const [imageUrl, setImageUrl] = useState('');
+      const [imageCaption, setImageCaption] = useState('En beskrivande bildtext...');
+      const [pullQuote, setPullQuote] = useState('');
+      const [content, setContent] = useState('');
+
+      useEffect(() => {
+        let studentOverrides = false;
+        const params = new URLSearchParams(window.location.search);
+        const taskData = params.get('t');
+        if (taskData) {
+          try {
+            const decodedStr = decodeURIComponent(atob(taskData).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+            const [dType, nName, tTheme] = JSON.parse(decodedStr);
+            setDocType(dType);
+            setNewspaperName(nName);
+            if (tTheme) setTheme(tTheme);
+            setIsStudentMode(true);
+            studentOverrides = true;
+          } catch (e) { console.error("Ogiltig länk", e); }
+        }
+        const saved = localStorage.getItem('newspaper_layout_save');
+        if (saved) {
+          try {
+            const data = JSON.parse(saved);
+            if (!studentOverrides) {
+              if (data.docType) setDocType(data.docType);
+              if (data.newspaperName) setNewspaperName(data.newspaperName);
+            }
+            if (data.theme) setTheme(data.theme);
+            if (data.headline) setHeadline(data.headline);
+            if (data.author) setAuthor(data.author);
+            if (data.imageCaption !== undefined) setImageCaption(data.imageCaption);
+            if (data.pullQuote !== undefined) setPullQuote(data.pullQuote);
+            if (data.content !== undefined) setContent(data.content);
+          } catch (e) { console.error("Laddning misslyckades", e); }
+        }
+        setIsLoaded(true);
+      }, []);
+
+      useEffect(() => {
+        if (!isLoaded) return;
+        const data = { docType, theme, newspaperName, headline, author, imageCaption, pullQuote, content };
+        localStorage.setItem('newspaper_layout_save', JSON.stringify(data));
+        const now = new Date();
+        setLastSaved(`${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`);
+      }, [docType, theme, newspaperName, headline, author, imageCaption, pullQuote, content, isLoaded]);
+
+      const generateShareLink = () => {
+        const compactData = [docType, newspaperName, theme];
+        const jsonStr = JSON.stringify(compactData);
+        const base64 = btoa(encodeURIComponent(jsonStr).replace(/%([0-9A-F]{2})/g, (match, p1) => String.fromCharCode('0x' + p1)));
+        const shareUrl = `${window.location.href.split('?')[0]}?t=${base64}`; 
+        const textArea = document.createElement("textarea");
+        textArea.value = shareUrl;
+        document.body.appendChild(textArea);
+        textArea.select();
+        try {
+          document.execCommand('copy');
+          setCopySuccess(true);
+          setTimeout(() => setCopySuccess(false), 3000);
+        } catch (err) { console.error('Kunde inte kopiera', err); }
+        document.body.removeChild(textArea);
+      };
+
+      const [showPreview, setShowPreview] = useState(true);
+      const [leftWidth, setLeftWidth] = useState(35);
+      const [isDragging, setIsDragging] = useState(false);
+      const [isDesktop, setIsDesktop] = useState(true);
+      const containerRef = useRef(null);
+
+      useEffect(() => {
+        const checkRes = () => setIsDesktop(window.innerWidth >= 768);
+        checkRes();
+        window.addEventListener('resize', checkRes);
+        return () => window.removeEventListener('resize', checkRes);
+      }, []);
+
+      const handleMouseDown = (e) => { e.preventDefault(); setIsDragging(true); };
+      const handleMouseMove = useCallback((e) => {
+        if (!isDragging || !containerRef.current) return;
+        const containerRect = containerRef.current.getBoundingClientRect();
+        const newWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100;
+        if (newWidth >= 20 && newWidth <= 70) setLeftWidth(newWidth);
+      }, [isDragging]);
+      
+      useEffect(() => {
+        if (isDragging) {
+          document.addEventListener('mousemove', handleMouseMove);
+          document.addEventListener('mouseup', () => setIsDragging(false));
+        }
+        return () => { document.removeEventListener('mousemove', handleMouseMove); };
+      }, [isDragging, handleMouseMove]);
+
+      const activeTheme = THEMES[theme];
+      const paragraphs = content.split('\n').filter(p => p.trim() !== '');
+      const wordCount = content.trim() === '' ? 0 : content.trim().split(/\s+/).length;
+
+      return (
+        <div ref={containerRef} className="flex flex-col md:flex-row h-screen bg-neutral-100 font-sans overflow-hidden">
+          
+          {/* KONTROLLPANEL */}
+          <div 
+            className="bg-white border-r border-gray-200 overflow-y-auto no-print flex flex-col shadow-lg z-10 shrink-0"
+            style={{ width: isDesktop ? (showPreview ? `${leftWidth}%` : '100%') : '100%' }}
+          >
+            <div className="p-5 bg-slate-900 text-white flex justify-between items-center sticky top-0 z-20">
+              <h1 className="text-xl font-bold flex items-center gap-2 italic">
+                <i className="fas fa-newspaper text-indigo-400"></i> Layoutverktyget
+              </h1>
+              <div className="flex gap-2">
+                <button onClick={() => {if(confirm('Rensa allt?')) { localStorage.clear(); location.reload(); }}} className="p-2 bg-slate-800 hover:bg-red-900 rounded border border-slate-700 transition-colors"><i className="fas fa-trash-alt text-xs"></i></button>
+                <button onClick={() => setShowPreview(!showPreview)} className="p-2 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 transition-colors hidden md:block">
+                  <i className={showPreview ? "fas fa-eye-slash" : "fas fa-eye text-emerald-400"}></i>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-5 flex-1 space-y-6">
+              {!isStudentMode && (
+                <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100 space-y-4 shadow-sm">
+                  <div className="flex justify-between items-center">
+                    <label className="text-xs font-black text-indigo-900 uppercase">Lärarinställningar</label>
+                    <button onClick={generateShareLink} className={`text-[10px] font-bold px-3 py-1.5 rounded-md flex items-center gap-2 transition-all ${copySuccess ? 'bg-emerald-500 text-white' : 'bg-indigo-600 text-white'}`}>
+                      {copySuccess ? <i className="fas fa-check"></i> : <i className="fas fa-share-alt"></i>}
+                      {copySuccess ? 'Klar!' : 'Dela länk'}
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {Object.values(TEXT_TYPES).map(type => (
+                      <button key={type.id} onClick={() => {setDocType(type.id); setNewspaperName(type.newspaperDefault);}} className={`py-1.5 px-2 text-[10px] font-bold rounded border ${docType === type.id ? 'bg-indigo-600 text-white' : 'bg-white text-indigo-800 border-indigo-200'}`}>
+                        {type.name}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {Object.values(THEMES).map(t => (
+                      <button key={t.id} onClick={() => setTheme(t.id)} className={`py-1.5 px-1 text-[9px] font-bold rounded border ${theme === t.id ? 'bg-indigo-600 text-white' : 'bg-white border-slate-200'}`}>
+                        {t.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-4">
+                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-3">
+                  <input type="text" value={headline} onChange={(e) => setHeadline(e.target.value)} placeholder="Rubrik" className="w-full p-2 border border-gray-300 rounded text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-400"/>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input type="text" value={newspaperName} onChange={(e) => setNewspaperName(e.target.value)} placeholder="Tidning" className="w-full p-2 border border-gray-300 rounded text-xs outline-none focus:ring-2 focus:ring-indigo-400"/>
+                    <input type="text" value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="Skribent" className="w-full p-2 border border-gray-300 rounded text-xs outline-none focus:ring-2 focus:ring-indigo-400"/>
+                  </div>
+                </div>
+
+                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-3">
+                  <input type="file" accept="image/*" onChange={(e) => e.target.files[0] && setImageUrl(URL.createObjectURL(e.target.files[0]))} className="w-full text-[10px] file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-indigo-100 file:text-indigo-700"/>
+                  {imageUrl && (
+                    <div className="space-y-2">
+                      <input type="text" value={imageCaption} onChange={(e) => setImageCaption(e.target.value)} placeholder="Bildtext..." className="w-full p-2 border border-gray-200 rounded text-[11px] outline-none italic"/>
+                      <button onClick={() => setImageUrl('')} className="text-[10px] text-red-600 font-bold uppercase">Ta bort bild</button>
+                    </div>
+                  )}
+                  <textarea value={pullQuote} onChange={(e) => setPullQuote(e.target.value)} placeholder="Citat som lyfts ut..." rows="2" className="w-full p-2 border border-gray-300 rounded text-xs italic outline-none resize-none focus:ring-2 focus:ring-indigo-400"></textarea>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center px-1">
+                    <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Artikeltext</span>
+                    <span className="text-[10px] font-bold text-gray-400 uppercase">{wordCount} ord</span>
+                  </div>
+                  <textarea value={content} onChange={(e) => setContent(e.target.value)} placeholder="Klistra in din text här..." rows="18" className="w-full p-4 border border-gray-300 rounded-xl focus:ring-4 focus:ring-indigo-50 focus:outline-none resize-y text-sm leading-relaxed font-serif"></textarea>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-5 border-t border-gray-200 bg-neutral-50 sticky bottom-0">
+              <button onClick={() => window.print()} className="w-full bg-slate-900 hover:bg-black text-white font-black py-4 rounded-xl flex items-center justify-center gap-3 transition-all shadow-lg active:scale-95 uppercase tracking-widest text-sm">
+                <i className="fas fa-print text-lg"></i> Skriv ut / Spara PDF
+              </button>
+            </div>
+          </div>
+
+          {/* RESIZER */}
+          {showPreview && isDesktop && (
+            <div onMouseDown={handleMouseDown} className="w-1.5 cursor-col-resize z-20 no-print transition-colors border-x border-gray-300 flex items-center justify-center hover:bg-indigo-300">
+              <div className="w-0.5 h-12 bg-gray-400/30 rounded-full"></div>
+            </div>
+          )}
+
+          {/* FÖRHANDSVISNING */}
+          <div className={`overflow-y-auto bg-neutral-300 p-4 md:p-8 print:p-0 print:bg-white print:w-full print:block print:h-auto print:overflow-visible ${showPreview ? 'block flex-1' : 'hidden print:block'}`}>
+            <div className={`print-container mx-auto ${activeTheme.paper} max-w-[210mm] w-full shadow-2xl print:shadow-none p-8 md:p-16 print:p-0 transition-colors duration-300 relative print:h-auto print:overflow-visible`} lang="sv">
+              
+              <header className={`${activeTheme.headerBlock} mb-10`}>
+                <AutoFitText text={newspaperName} className={activeTheme.newspaperName} />
+                <div className={`flex justify-between items-center ${activeTheme.metaBar}`}>
+                  <span>{TEXT_TYPES[docType].name}</span><span>{date}</span><span>45 KR</span>
+                </div>
+              </header>
+
+              <div className="mb-10 text-center px-4">
+                <h2 className={`${activeTheme.headline}`}>{headline}</h2>
+              </div>
+
+              <div className="flex flex-col w-full print:overflow-visible">
+                {imageUrl && (
+                  <div className="mb-10 w-full flex flex-col">
+                    <img src={imageUrl} alt="Artikelbild" className={`mx-auto w-auto max-w-full h-auto max-h-[550px] grayscale contrast-125 border ${activeTheme.borderBase} p-1 mb-3`} />
+                    <div className="flex justify-between items-start mt-2 gap-6 w-full">
+                      {imageCaption && <p className="text-[12px] leading-snug text-neutral-700 font-sans italic border-l-2 border-neutral-300 pl-4 flex-1">{imageCaption}</p>}
+                      <p className="font-sans font-bold text-[10px] text-neutral-500 uppercase tracking-widest text-right flex-shrink-0">Foto: {author}</p>
+                    </div>
+                  </div>
+                )}
+
+                <div className={`border-t-2 border-b-2 ${activeTheme.borderBase} py-2 mb-10`}>
+                  <p className="font-sans font-bold text-[12px] uppercase tracking-[0.2em] text-center">Text: {author}</p>
+                </div>
+
+                <div className={`newspaper-columns ${docType === 'reportage' ? 'reportage-columns-print md:columns-3' : 'md:columns-2'} ${activeTheme.bodyText} gap-8 w-full print:overflow-visible`}>
+                  {paragraphs.map((paragraph, index) => (
+                    <React.Fragment key={index}>
+                      {index === 1 && pullQuote && (
+                        <div className={`pull-quote-box ${activeTheme.quote}`}>"{pullQuote}"</div>
+                      )}
+                      {index === 0 ? (
+                        docType === 'nyhet' ? (
+                          <p className={`mb-6 font-bold font-sans text-[1.2rem] leading-snug border-l-4 ${activeTheme.borderBase} pl-5 text-left`}>{paragraph}</p>
+                        ) : (
+                          <p className="mb-6 text-left mt-0">
+                            <span className={`${activeTheme.dropCap}`}>{paragraph.charAt(0)}</span>
+                            {paragraph.slice(1)}
+                          </p>
+                        )
+                      ) : (
+                        <p className={`mb-5 ${docType !== 'nyhet' ? 'indent-8' : ''}`}>{paragraph}</p>
+                      )}
+                    </React.Fragment>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
